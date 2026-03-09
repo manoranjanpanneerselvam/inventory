@@ -1,0 +1,57 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+
+  # ── Build Windows .exe ─────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller requests
+
+      - name: Build exe
+        run: |
+          pyinstaller --onefile --noconsole inventory_agent.py
+
+      - name: Upload Windows exe
+        uses: actions/upload-artifact@v3
+        with:
+          name: inventory_agent_windows
+          path: dist/inventory_agent.exe
+
+  # ── Build Linux binary ─────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller requests
+
+      - name: Build binary
+        run: |
+          pyinstaller --onefile inventory_agent.py
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: inventory_agent_linux
+          path: dist/inventory_agent
