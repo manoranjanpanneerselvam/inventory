@@ -97,6 +97,45 @@ def get_disk_info_windows():
             disks.append(disk)
     return disks
 
+def get_monitor_device_ids_windows():
+    raw = run('wmic path Win32_PnPEntity where "PNPClass=\'Monitor\'" get DeviceID,Name')
+    lines = [l.strip() for l in raw.split("\n") if l.strip()]
+    devices = []
+    for line in lines[1:]:
+        parts = line.rsplit(None, 1)
+        if len(parts) == 2:
+            device_id, name = parts[0].strip(), parts[1].strip()
+            devices.append({"name": name, "device_id": device_id})
+        elif parts:
+            devices.append({"name": parts[0].strip(), "device_id": ""})
+    return devices
+
+def get_keyboard_device_ids_windows():
+    raw = run('wmic path Win32_PnPEntity where "PNPClass=\'Keyboard\'" get DeviceID,Name')
+    lines = [l.strip() for l in raw.split("\n") if l.strip()]
+    devices = []
+    for line in lines[1:]:
+        parts = line.rsplit(None, 1)
+        if len(parts) == 2:
+            device_id, name = parts[0].strip(), parts[1].strip()
+            devices.append({"name": name, "device_id": device_id})
+        elif parts:
+            devices.append({"name": parts[0].strip(), "device_id": ""})
+    return devices
+
+def get_mouse_device_ids_windows():
+    raw = run('wmic path Win32_PnPEntity where "PNPClass=\'Mouse\'" get DeviceID,Name')
+    lines = [l.strip() for l in raw.split("\n") if l.strip()]
+    devices = []
+    for line in lines[1:]:
+        parts = line.rsplit(None, 1)
+        if len(parts) == 2:
+            device_id, name = parts[0].strip(), parts[1].strip()
+            devices.append({"name": name, "device_id": device_id})
+        elif parts:
+            devices.append({"name": parts[0].strip(), "device_id": ""})
+    return devices
+
 def get_network_info_windows():
     raw = run("wmic nic where NetEnabled=true get Name,MACAddress")
     lines = [l.strip() for l in raw.split("\n") if l.strip()]
@@ -166,6 +205,77 @@ def get_network_info_linux():
             mac  = match_mac.group(1) if match_mac else ""
             adapters.append({"name": name, "mac": mac})
     return adapters
+
+def get_monitor_device_ids_linux():
+    devices = []
+    raw = run("xrandr --query 2>/dev/null | grep ' connected'")
+    edid_raw = run("find /sys/class/drm -name 'edid' 2>/dev/null")
+    for line in raw.split("\n"):
+        if not line.strip():
+            continue
+        name = line.split()[0]
+        # Try to get EDID-based ID from sysfs
+        device_id = ""
+        for edid_path in edid_raw.split("\n"):
+            if name in edid_path:
+                device_id = edid_path.replace("/edid", "").strip()
+                break
+        if not device_id:
+            # Fallback: use sysfs connector path
+            sysfs = run(f"find /sys/class/drm -name '*{name}*' 2>/dev/null | head -1").strip()
+            device_id = sysfs if sysfs else name
+        devices.append({"name": name, "device_id": device_id})
+    return devices if devices else [{"name": "Unknown Monitor", "device_id": ""}]
+
+def get_keyboard_device_ids_linux():
+    devices = []
+    raw = run("cat /proc/bus/input/devices")
+    current = {}
+    for line in raw.split("\n"):
+        line = line.strip()
+        if line.startswith("N: Name="):
+            current["name"] = line.split("=", 1)[1].strip('"')
+        elif line.startswith("S: Sysfs="):
+            current["device_id"] = line.split("=", 1)[1].strip()
+        elif line == "" and current:
+            name = current.get("name", "")
+            if "keyboard" in name.lower() or "kbd" in name.lower():
+                devices.append({
+                    "name": name,
+                    "device_id": current.get("device_id", "")
+                })
+            current = {}
+    if not devices:
+        raw_xi = run("xinput list --name-only 2>/dev/null | grep -i keyboard")
+        for n in raw_xi.split("\n"):
+            if n.strip():
+                devices.append({"name": n.strip(), "device_id": ""})
+    return devices if devices else [{"name": "Unknown Keyboard", "device_id": ""}]
+
+def get_mouse_device_ids_linux():
+    devices = []
+    raw = run("cat /proc/bus/input/devices")
+    current = {}
+    for line in raw.split("\n"):
+        line = line.strip()
+        if line.startswith("N: Name="):
+            current["name"] = line.split("=", 1)[1].strip('"')
+        elif line.startswith("S: Sysfs="):
+            current["device_id"] = line.split("=", 1)[1].strip()
+        elif line == "" and current:
+            name = current.get("name", "")
+            if "mouse" in name.lower() or "pointer" in name.lower():
+                devices.append({
+                    "name": name,
+                    "device_id": current.get("device_id", "")
+                })
+            current = {}
+    if not devices:
+        raw_xi = run("xinput list --name-only 2>/dev/null | grep -i mouse")
+        for n in raw_xi.split("\n"):
+            if n.strip():
+                devices.append({"name": n.strip(), "device_id": ""})
+    return devices if devices else [{"name": "Unknown Mouse", "device_id": ""}]
 
 def get_cpu_linux():
     raw = run("cat /proc/cpuinfo")
@@ -246,9 +356,9 @@ if IS_WINDOWS:
     bios        = parse_wmic_single(run("wmic bios get serialnumber"))
     motherboard = parse_wmic_single(run("wmic baseboard get manufacturer,product"))
     gpu         = parse_wmic_list(run("wmic path win32_VideoController get name"))
-    monitor     = parse_wmic_list(run("wmic path Win32_DesktopMonitor get Name"))
-    mouse       = parse_wmic_list(run("wmic path Win32_PointingDevice get Name"))
-    keyboard    = parse_wmic_list(run("wmic path Win32_Keyboard get Name"))
+    monitor     = get_monitor_device_ids_windows()
+    mouse       = get_mouse_device_ids_windows()
+    keyboard    = get_keyboard_device_ids_windows()
     usb_raw     = parse_wmic_list(run("wmic path Win32_PnPEntity where \"PNPClass='USB'\" get Name"))
     usb_devices = [
         u for u in usb_raw
@@ -264,9 +374,9 @@ elif IS_LINUX:
     bios        = get_bios_linux()
     motherboard = get_motherboard_linux()
     gpu         = get_gpu_linux()
-    monitor     = get_monitor_linux()
-    mouse       = get_mouse_linux()
-    keyboard    = get_keyboard_linux()
+    monitor     = get_monitor_device_ids_linux()
+    mouse       = get_mouse_device_ids_linux()
+    keyboard    = get_keyboard_device_ids_linux()
     usb_devices = get_usb_linux()
     disk        = get_disk_info_linux()
     network     = get_network_info_linux()
